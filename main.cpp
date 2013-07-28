@@ -63,6 +63,10 @@ static string featuresFile = "genfiles/features.dat";
 static string svmModelFile = "genfiles/svmlightmodel.dat";
 // Set the file to write the resulting detecting descriptor vector to
 static string descriptorVectorFile = "genfiles/descriptorvector.dat";
+// Set the height of the HOG descriptor
+static int HOGheight;
+// Set the width of the HOG descriptor
+static int HOGwidth;
 
 // HOG parameters for training that for some reason are not included in the HOG class
 static const Size trainingPadding = Size(0, 0);
@@ -156,35 +160,25 @@ static void getFilesInDirectory(const string& dirName, vector<string>& fileNames
 }
 
 /**
+ * I found this method to be unnecessary since it just calls hog.compute() 
+ * after I made it possible to input any size images and  split up negative images
  * This is the actual calculation from the (input) image data to the HOG descriptor/feature vector using the hog.compute() function
- * @param imageFilename file path of the image file to read and calculate feature vector from
+ * @param imageData cv::Mat to which feature will be calculated
  * @param descriptorVector the returned calculated feature vector<float> , 
  *      I can't comprehend why openCV implementation returns std::vector<float> instead of cv::MatExpr_<float> (e.g. Mat<float>)
  * @param hog HOGDescriptor containin HOG settings
  */
-static void calculateFeaturesFromInput(const string& imageFilename, vector<float>& featureVector, HOGDescriptor& hog) {
-    /** for imread flags from openCV documentation, 
-     * @see http://docs.opencv.org/modules/highgui/doc/reading_and_writing_images_and_video.html?highlight=imread#Mat imread(const string& filename, int flags)
-     * @note If you get a compile-time error complaining about following line (esp. imread),
-     * you either do not have a current openCV version (>2.0) 
-     * or the linking order is incorrect, try g++ -o openCVHogTrainer main.cpp `pkg-config --cflags --libs opencv`
-     */
-    Mat imageData = imread(imageFilename, 0);
-    if (imageData.empty()) {
-        featureVector.clear();
-        printf("Error: HOG image '%s' is empty, features calculation skipped!\n", imageFilename.c_str());
-        return;
-    }
-    // Check for mismatching dimensions
-    if (imageData.cols != hog.winSize.width || imageData.rows != hog.winSize.height) {
-        featureVector.clear();
-        printf("Error: Image '%s' dimensions (%u x %u) do not match HOG window size (%u x %u)!\n", imageFilename.c_str(), imageData.cols, imageData.rows, hog.winSize.width, hog.winSize.height);
-        return;
-    }
-    vector<Point> locations;
-    hog.compute(imageData, featureVector, winStride, trainingPadding, locations);
-    imageData.release(); // Release the image again after features are extracted
-}
+// static void calculateFeaturesFromInput(const Mat imageData, vector<float>& featureVector, HOGDescriptor& hog) {
+// 	// Check for mismatching dimensions
+//     if (imageData.cols != hog.winSize.width || imageData.rows != hog.winSize.height) {
+//         featureVector.clear();
+//         printf("Error: Image dimensions (%u x %u) do not match HOG window size (%u x %u)!\n", imageData.cols, imageData.rows, hog.winSize.width, hog.winSize.height);
+//         return;
+//     }
+//     vector<Point> locations;
+// //    hog.compute(imageData, featureVector, winStride, trainingPadding, locations);
+// 	hog.compute(imageData, featureVector, winStride, trainingPadding);
+// }
 
 /**
  * Shows the detections in the image
@@ -217,9 +211,10 @@ static void detectTest(const HOGDescriptor& hog, Mat& imageData) {
     vector<Rect> found;
     int groupThreshold = 2;
     Size padding(Size(32, 32));
-    Size winStride(Size(8, 8));
+    Size winStride(Size(8, 8)); //must be multiple of (8,8)
     double hitThreshold = 0.; // tolerance
-    hog.detectMultiScale(imageData, found, hitThreshold, winStride, padding, 1.05, groupThreshold);
+    //printf("hog levels = %d\n", hog.nlevels); //default is 64
+    hog.detectMultiScale(imageData, found, hitThreshold, winStride, padding, 1.2, groupThreshold);
     showDetections(found, imageData);
 }
 // </editor-fold>
@@ -234,7 +229,7 @@ int main(int argc, char** argv) {
 
     // <editor-fold defaultstate="collapsed" desc="Init">
     HOGDescriptor hog; // Use standard parameters here
-    hog.winSize = Size(64, 128); // Default training images size as used in paper
+    hog.winSize = Size(128, 64); // Chose this as average ship size
     // Get the files to train from somewhere
     static vector<string> positiveTrainingImages;
     static vector<string> negativeTrainingImages;
@@ -278,6 +273,13 @@ int main(int argc, char** argv) {
 		// Remove following line for libsvm which does not support comments
         // File << "# Use this file to train, e.g. SVMlight by issuing $ svm_learn -i 1 -a weights.txt " << featuresFile.c_str() << endl;
         // Iterate over sample images
+        int numpos = positiveTrainingImages.size();
+        int featurelength;
+        Mat im;
+        Mat imageData = Mat(hog.winSize, 0);
+        int fwidth = hog.winSize.width;
+		int fheight = hog.winSize.height;
+		int pointr, pointc = 0;
         for (unsigned long currentFile = 0; currentFile < overallSamples; ++currentFile) {
             storeCursor();
             vector<float> featureVector;
@@ -290,21 +292,65 @@ int main(int argc, char** argv) {
                 fflush(stdout);
                 resetCursor();
             }
-            // Calculate feature vector from current image file
-            calculateFeaturesFromInput(currentImageFile, featureVector, hog);
-            if (!featureVector.empty()) {
-                /* Put positive or negative sample class to file, 
-                 * true=positive, false=negative, 
-                 * and convert positive class to +1 and negative class to -1 for SVMlight
-                 */
-                File << ((currentFile < positiveTrainingImages.size()) ? "+1" : "-1");
-                // Save feature vector components
-                for (unsigned int feature = 0; feature < featureVector.size(); ++feature) {
-                    File << " " << (feature + 1) << ":" << featureVector.at(feature);
-                }
-                File << endl;
-            }
-        }
+			
+			im = imread(currentImageFile, 0);
+    		if (im.empty()) {
+        		featureVector.clear();
+        		printf("Error: HOG image '%s' is empty, features calculation skipped!\n", currentImageFile.c_str());
+    		} 
+    		else { // Image exists
+    		
+				// Calculate feature vector from current image file
+				if (currentFile < numpos) { //shink positive images to feature size
+					resize(im, imageData, hog.winSize, NULL, NULL, INTER_LINEAR);
+					//calculateFeaturesFromInput(imageData, featureVector, hog);
+					hog.compute(imageData, featureVector, winStride, trainingPadding);
+					if (!featureVector.empty()) {
+						featurelength=featureVector.size();
+						/* Put positive or negative sample class to file, 
+						 * true=positive, false=negative, 
+						 * and convert positive class to +1 and negative class to -1 for SVMlight
+						 */
+						//File << ((currentFile < numpos) ? "+1" : "-1");
+						File << "+1";
+						// Save feature vector components
+						for (unsigned int feature = 0; feature < featurelength; ++feature) {
+							File << " " << (feature + 1) << ":" << featureVector.at(feature);
+						}
+						File << endl;
+					}
+				}
+				else { //Chop up negative images into blocks that are the size of the feature
+					//loop through columns
+					for(pointc = 0; pointc + fwidth < im.cols; pointc+=fwidth/2){
+					//loop through rows
+						for(pointr = 0; pointr + fheight < im.rows; pointr+=fwidth/2){
+							imageData = im.colRange(pointc,pointc+fwidth).rowRange(pointr,pointr+fheight);
+							hog.compute(imageData, featureVector, winStride, trainingPadding);
+							//calculateFeaturesFromInput(imageData, featureVector, hog);
+							if (!featureVector.empty()) {
+								/* Put positive or negative sample class to file, 
+								 * true=positive, false=negative, 
+								 * and convert positive class to +1 and negative class to -1 for SVMlight
+								 */
+								//File << ((currentFile < numpos) ? "+1" : "-1");
+								for ( unsigned int negsamples = 0; negsamples < featureVector.size(); negsamples += featurelength){
+									File << "-1";
+									// Save feature vector components
+									for (unsigned int feature = negsamples; feature < negsamples + featurelength; ++feature) {
+										File << " " << (feature + 1) << ":" << featureVector.at(feature);
+									}
+									File << endl;
+								}
+							}
+						}
+				
+        			}
+        		}
+        		im.release();
+        	}
+     	}
+     	imageData.release();
         printf("\n");
         File.flush();
         File.close();
@@ -333,22 +379,31 @@ int main(int argc, char** argv) {
     saveDescriptorVectorToFile(descriptorVector, descriptorVectorIndices, descriptorVectorFile);
     // </editor-fold>
 
-    // <editor-fold defaultstate="collapsed" desc="Test detecting vector">
-    printf("Testing custom detection using camera\n");
+	//  Uncomment to test neg.jpg stored in working directory
+    printf("Testing on image\n");
     hog.setSVMDetector(descriptorVector); // Set our custom detecting vector
-    VideoCapture cap(0); // open the default camera
-    if(!cap.isOpened()) { // check if we succeeded
-        printf("Error opening camera!\n");
-        return EXIT_FAILURE;
+	Mat testImage = imread("postest.jpg");
+    if (testImage.empty()) {
+        printf("Error: HOG test image is empty, features calculation skipped!\n");
+        return EXIT_FAILURE
+        ;
     }
-    Mat testImage;
-    while ((cvWaitKey(10) & 255) != 27) {
-        cap >> testImage; // get a new frame from camera
-//        cvtColor(testImage, testImage, CV_BGR2GRAY); // If you want to work on grayscale images
-        detectTest(hog, testImage);
-        imshow("HOG custom detection", testImage);
-    }
-    // </editor-fold>
+
+    detectTest(hog, testImage);
+    imshow("HOG custom detection", testImage);
+    waitKey();
+
+	//  Uncomment to test negtest.jpg stored in working directory
+// 	Mat testImageNeg = imread("negtest.jpg");
+//     if (testImageNeg.empty()) {
+//         printf("Error: HOG Neg test image is empty, features calculation skipped!\n");
+//         return EXIT_FAILURE
+//         ;
+//     }
+// 
+//     detectTest(hog, testImageNeg);
+//     imshow("HOG custom detection", testImageNeg);
+//     waitKey();
 
     return EXIT_SUCCESS;
 }
