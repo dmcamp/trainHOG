@@ -64,9 +64,12 @@ static string svmModelFile = "genfiles/svmlightmodel.dat";
 // Set the file to write the resulting detecting descriptor vector to
 static string descriptorVectorFile = "genfiles/descriptorvector.dat";
 // Set the height of the HOG descriptor
-static int HOGheight;
+static int HOGheight = 64;
 // Set the width of the HOG descriptor
-static int HOGwidth;
+static int HOGwidth = 128;
+// Set scale to > 1 to search for objects larger than HOGdescriptor
+// for multiscaledetect searches will be done at a max of 64 scales by default
+static double scale = 1.1;
 
 // HOG parameters for training that for some reason are not included in the HOG class
 static const Size trainingPadding = Size(0, 0);
@@ -161,7 +164,7 @@ static void getFilesInDirectory(const string& dirName, vector<string>& fileNames
 
 /**
  * I found this method to be unnecessary since it just calls hog.compute() 
- * after I made it possible to input any size images and  split up negative images
+ * after I made it possible to input any size images and  split up negative images @DMC
  * This is the actual calculation from the (input) image data to the HOG descriptor/feature vector using the hog.compute() function
  * @param imageData cv::Mat to which feature will be calculated
  * @param descriptorVector the returned calculated feature vector<float> , 
@@ -214,7 +217,8 @@ static void detectTest(const HOGDescriptor& hog, Mat& imageData) {
     Size winStride(Size(8, 8)); //must be multiple of (8,8)
     double hitThreshold = 0.; // tolerance
     //printf("hog levels = %d\n", hog.nlevels); //default is 64
-    hog.detectMultiScale(imageData, found, hitThreshold, winStride, padding, 1.2, groupThreshold);
+    
+    hog.detectMultiScale(imageData, found, hitThreshold, winStride, padding, scale, groupThreshold);
     showDetections(found, imageData);
 }
 // </editor-fold>
@@ -229,7 +233,7 @@ int main(int argc, char** argv) {
 
     // <editor-fold defaultstate="collapsed" desc="Init">
     HOGDescriptor hog; // Use standard parameters here
-    hog.winSize = Size(128, 64); // Chose this as average ship size
+    hog.winSize = Size(HOGwidth, HOGheight); // Chose this as average ship size
     // Get the files to train from somewhere
     static vector<string> positiveTrainingImages;
     static vector<string> negativeTrainingImages;
@@ -303,7 +307,6 @@ int main(int argc, char** argv) {
 				// Calculate feature vector from current image file
 				if (currentFile < numpos) { //shink positive images to feature size
 					resize(im, imageData, hog.winSize, NULL, NULL, INTER_LINEAR);
-					//calculateFeaturesFromInput(imageData, featureVector, hog);
 					hog.compute(imageData, featureVector, winStride, trainingPadding);
 					if (!featureVector.empty()) {
 						featurelength=featureVector.size();
@@ -327,7 +330,6 @@ int main(int argc, char** argv) {
 						for(pointr = 0; pointr + fheight < im.rows; pointr+=fwidth/2){
 							imageData = im.colRange(pointc,pointc+fwidth).rowRange(pointr,pointr+fheight);
 							hog.compute(imageData, featureVector, winStride, trainingPadding);
-							//calculateFeaturesFromInput(imageData, featureVector, hog);
 							if (!featureVector.empty()) {
 								/* Put positive or negative sample class to file, 
 								 * true=positive, false=negative, 
