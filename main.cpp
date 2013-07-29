@@ -356,13 +356,13 @@ int main(int argc, char** argv) {
 
     // And save the precious to file system
     FileStorage fs(descriptorFile, FileStorage::WRITE);
-    string objName = "descriptor";  // Must name the obj being saved in the xml
+    string objName = "HOGDescriptor";  // Must name the obj being saved in the xml
 	hog.write(fs,objName);
 	fs.release();
 	
 
 	HOGDescriptor hogLoad; // Load the newly created hog descriptor
-	string loadName = "descriptor";  // In order to load the descriptor objName must match the saved name
+	string loadName = "HOGDescriptor";  // In order to load the descriptor objName must match the saved name
 	hogLoad.load(descriptorFile,loadName);
 
 	
