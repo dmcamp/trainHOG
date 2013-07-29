@@ -40,6 +40,7 @@
 #include <dirent.h>
 #include <ios>
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
 #include <opencv2/opencv.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -62,7 +63,7 @@ static string featuresFile = "genfiles/features.dat";
 // Set the file to write the SVM model to
 static string svmModelFile = "genfiles/svmlightmodel.dat";
 // Set the file to write the resulting detecting descriptor vector to
-static string descriptorVectorFile = "genfiles/descriptorvector.dat";
+static string descriptorFile = "genfiles/descriptor.xml";
 // Set the height of the HOG descriptor
 static int HOGheight = 64;
 // Set the width of the HOG descriptor
@@ -96,36 +97,16 @@ static void resetCursor(void) {
 }
 
 /**
+ * This method is unnecessary. OpenCV has an undocumented HOGDescriptor::write and
+ * HOGDescriptor::load that allows writing and loading the entire HOGDescriptor.
  * Saves the given descriptor vector to a file
  * @param descriptorVector the descriptor vector to save
  * @param _vectorIndices contains indices for the corresponding vector values (e.g. descriptorVector(0)=3.5f may have index 1)
  * @param fileName
  * @TODO Use _vectorIndices to write correct indices
  */
-static void saveDescriptorVectorToFile(vector<float>& descriptorVector, vector<unsigned int>& _vectorIndices, string fileName) {
-    printf("Saving descriptor vector to file '%s'\n", fileName.c_str());
-    string separator = " "; // Use blank as default separator between single features
-    fstream File;
-    float percent;
-    File.open(fileName.c_str(), ios::out);
-    if (File.good() && File.is_open()) {
-        printf("Saving descriptor vector features:\t");
-        storeCursor();
-        for (int feature = 0; feature < descriptorVector.size(); ++feature) {
-            if ((feature % 10 == 0) || (feature == (descriptorVector.size()-1)) ) {
-                percent = ((1 + feature) * 100 / descriptorVector.size());
-                printf("%4u (%3.0f%%)", feature, percent);
-                fflush(stdout);
-                resetCursor();
-            }
-            File << descriptorVector.at(feature) << separator;
-        }
-        printf("\n");
-        File << endl;
-        File.flush();
-        File.close();
-    }
-}
+// static void saveDescriptorVectorToFile( vector<float>& descriptorVector, vector<unsigned int>& _vectorIndices, string fileName) {
+// }
 
 /**
  * For unixoid systems only: Lists all files in a given directory and returns a vector of path+name in string format
@@ -164,7 +145,7 @@ static void getFilesInDirectory(const string& dirName, vector<string>& fileNames
 
 /**
  * I found this method to be unnecessary since it just calls hog.compute() 
- * after I made it possible to input any size images and  split up negative images @DMC
+ * after I made it possible to input any size images and split up negative images DMC
  * This is the actual calculation from the (input) image data to the HOG descriptor/feature vector using the hog.compute() function
  * @param imageData cv::Mat to which feature will be calculated
  * @param descriptorVector the returned calculated feature vector<float> , 
@@ -172,15 +153,6 @@ static void getFilesInDirectory(const string& dirName, vector<string>& fileNames
  * @param hog HOGDescriptor containin HOG settings
  */
 // static void calculateFeaturesFromInput(const Mat imageData, vector<float>& featureVector, HOGDescriptor& hog) {
-// 	// Check for mismatching dimensions
-//     if (imageData.cols != hog.winSize.width || imageData.rows != hog.winSize.height) {
-//         featureVector.clear();
-//         printf("Error: Image dimensions (%u x %u) do not match HOG window size (%u x %u)!\n", imageData.cols, imageData.rows, hog.winSize.width, hog.winSize.height);
-//         return;
-//     }
-//     vector<Point> locations;
-// //    hog.compute(imageData, featureVector, winStride, trainingPadding, locations);
-// 	hog.compute(imageData, featureVector, winStride, trainingPadding);
 // }
 
 /**
@@ -377,21 +349,33 @@ int main(int argc, char** argv) {
     vector<unsigned int> descriptorVectorIndices;
     // Generate a single detecting feature vector (v1 | b) from the trained support vectors, for use e.g. with the HOG algorithm
     SVMlight::getInstance()->getSingleDetectingVector(descriptorVector, descriptorVectorIndices);
-    // And save the precious to file system
-    saveDescriptorVectorToFile(descriptorVector, descriptorVectorIndices, descriptorVectorFile);
+
     // </editor-fold>
 
-	//  Uncomment to test neg.jpg stored in working directory
+	hog.setSVMDetector(descriptorVector); // Set our custom detecting vector
+
+    // And save the precious to file system
+    FileStorage fs(descriptorFile, FileStorage::WRITE);
+    string objName = "descriptor";  // Must name the obj being saved in the xml
+	hog.write(fs,objName);
+	fs.release();
+	
+
+	HOGDescriptor hogLoad; // Load the newly created hog descriptor
+	string loadName = "descriptor";  // In order to load the descriptor objName must match the saved name
+	hogLoad.load(descriptorFile,loadName);
+
+	
+	//  Uncomment to test postest.jpg stored in working directory
     printf("Testing on image\n");
-    hog.setSVMDetector(descriptorVector); // Set our custom detecting vector
 	Mat testImage = imread("postest.jpg");
     if (testImage.empty()) {
         printf("Error: HOG test image is empty, features calculation skipped!\n");
         return EXIT_FAILURE
         ;
     }
-
-    detectTest(hog, testImage);
+	
+    detectTest(hogLoad, testImage);
     imshow("HOG custom detection", testImage);
     waitKey();
 
@@ -403,7 +387,7 @@ int main(int argc, char** argv) {
 //         ;
 //     }
 // 
-//     detectTest(hog, testImageNeg);
+//     detectTest(hogLoad, testImageNeg);
 //     imshow("HOG custom detection", testImageNeg);
 //     waitKey();
 
