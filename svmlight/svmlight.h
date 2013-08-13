@@ -12,6 +12,7 @@
 
 #include <stdio.h>
 #include <vector>
+#include <iostream>
 // svmlight related
 // namespace required for avoiding collisions of declarations (e.g. LINEAR being declared in flann, svmlight and libsvm)
 namespace svmlight {
@@ -41,7 +42,7 @@ private:
         kernel_parm = new KERNEL_PARM;
         // Init parameters
         verbosity = 1; // Show some messages -v 1
-        learn_parm->alphafile[0] = ' '; // NULL; // Important, otherwise files with strange/invalid names appear in the working directory
+        learn_parm->alphafile[0] = NULL; // Important, otherwise files with strange/invalid names appear in the working directory
         //        learn_parm->alphafile = NULL; // Important, otherwise files with strange/invalid names appear in the working directory
         learn_parm->biased_hyperplane = 1;
         learn_parm->sharedslack = 0; // 1
@@ -139,7 +140,9 @@ public:
         }
 
         // This is a threshold value which is also recorded in the lear code in lib/windetect.cpp at line 1297 as linearbias and in the original paper as constant epsilon, but no comment on how it is generated
-        singleDetectorVector.at(model->totwords) = -model->b; /** @NOTE the minus sign! */
+        //singleDetectorVector.at(model->totwords) = -model->b; /** @NOTE the minus sign! */
+        singleDetectorVector.erase(singleDetectorVector.begin());
+        singleDetectorVector.push_back(-model->b);
     }
 
 };
